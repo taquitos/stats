@@ -36,6 +36,8 @@ internal struct Version {
 }
 
 public class Updater {
+    public let isEnabled: Bool
+
     private let github: URL
     private let server: URL
     
@@ -61,7 +63,8 @@ public class Updater {
         }
     }
     
-    public init(github: String, url: String) {
+    public init(github: String, url: String, enabled: Bool = true) {
+        self.isEnabled = enabled
         self.github = URL(string: "https://api.github.com/repos/\(github)/releases/latest")!
         self.server = URL(string: "\(url)?macOS=\(ProcessInfo().operatingSystemVersion.getFullVersion())")!
     }
@@ -71,6 +74,11 @@ public class Updater {
     }
     
     public func check(force: Bool = false, completion: @escaping (_ result: version_s?, _ error: Error?) -> Void) {
+        guard self.isEnabled else {
+            completion(nil, "Updater disabled")
+            return
+        }
+
         if !isConnectedToNetwork() {
             completion(nil, "No internet connection")
             return
@@ -140,6 +148,10 @@ public class Updater {
     }
     
     public func download(_ url: URL, progress: @escaping (_ progress: Progress) -> Void = {_ in }, completion: @escaping (_ path: String) -> Void = {_ in }) {
+        guard self.isEnabled else {
+            return
+        }
+
         let downloadTask = URLSession.shared.downloadTask(with: url) { urlOrNil, _, _ in
             guard let fileURL = urlOrNil else { return }
             do {
@@ -167,6 +179,11 @@ public class Updater {
     }
     
     public func install(path: String, completion: @escaping (_ error: String?) -> Void) {
+        guard self.isEnabled else {
+            completion("Updater disabled")
+            return
+        }
+
         let dmg = path.replacingOccurrences(of: "file://", with: "")
         let pwd = Bundle.main.bundleURL.deletingLastPathComponent().path
         

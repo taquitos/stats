@@ -22,7 +22,7 @@ import Bluetooth
 import Clock
 import Remote
 
-let updater = Updater(github: "exelban/stats", url: "https://api.mac-stats.com/release/latest")
+let updater = Updater(github: "exelban/stats", url: "https://api.mac-stats.com/release/latest", enabled: false)
 var modules: [Module] = [
     CPU(),
     GPU(),
@@ -47,9 +47,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     internal var combinedView: CombinedView = CombinedView()
     internal var modulesMounted: Bool = false
     
-    internal let updateActivity = NSBackgroundActivityScheduler(identifier: "eu.exelban.Stats.updateCheck")
-    internal let supportActivity = NSBackgroundActivityScheduler(identifier: "eu.exelban.Stats.support")
-    internal let supportRetryActivity = NSBackgroundActivityScheduler(identifier: "eu.exelban.Stats.supportRetry")
+    internal let updateActivity = NSBackgroundActivityScheduler(identifier: "com.mydoghatestechnology.Stats.updateCheck")
+    internal let supportActivity = NSBackgroundActivityScheduler(identifier: "com.mydoghatestechnology.Stats.support")
+    internal let supportRetryActivity = NSBackgroundActivityScheduler(identifier: "com.mydoghatestechnology.Stats.supportRetry")
     
     internal var clickInNotification: Bool = false
     
@@ -199,7 +199,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         self.clickInNotification = true
         
-        if let uri = response.notification.request.content.userInfo["url"] as? String {
+        if updater.isEnabled, let uri = response.notification.request.content.userInfo["url"] as? String {
             debug("Downloading new version of app...")
             if let url = URL(string: uri) {
                 updater.download(url, completion: { path in

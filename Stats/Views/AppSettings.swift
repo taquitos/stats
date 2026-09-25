@@ -41,11 +41,11 @@ class ApplicationSettings: NSStackView {
     
     private var systemWidgetsUpdatesState: Bool {
         get {
-            let userDefaults = UserDefaults(suiteName: "\(Bundle.main.object(forInfoDictionaryKey: "TeamId") as! String).eu.exelban.Stats.widgets")
+            let userDefaults = UserDefaults(suiteName: "\(Bundle.main.object(forInfoDictionaryKey: "TeamId") as! String).com.mydoghatestechnology.Stats.widgets")
             return userDefaults?.bool(forKey: "systemWidgetsUpdates_state") ?? false
         }
         set {
-            let userDefaults = UserDefaults(suiteName: "\(Bundle.main.object(forInfoDictionaryKey: "TeamId") as! String).eu.exelban.Stats.widgets")
+            let userDefaults = UserDefaults(suiteName: "\(Bundle.main.object(forInfoDictionaryKey: "TeamId") as! String).com.mydoghatestechnology.Stats.widgets")
             userDefaults?.set(newValue, forKey: "systemWidgetsUpdates_state")
         }
     }
@@ -99,6 +99,7 @@ class ApplicationSettings: NSStackView {
             items: AppUpdateIntervals,
             selected: self.updateIntervalValue
         )
+        self.updateSelector?.isEnabled = updater.isEnabled
         self.startAtLoginBtn = switchView(
             action: #selector(self.toggleLaunchAtLogin),
             state: LaunchAtLogin.isEnabled
@@ -302,6 +303,7 @@ class ApplicationSettings: NSStackView {
         let updateButton: NSButton = NSButton()
         updateButton.title = localizedString("Check for update")
         updateButton.bezelStyle = .rounded
+        updateButton.isEnabled = updater.isEnabled
         updateButton.target = self
         updateButton.action = #selector(self.updateAction)
         
@@ -322,6 +324,11 @@ class ApplicationSettings: NSStackView {
     // MARK: - actions
     
     @objc private func updateAction() {
+        guard updater.isEnabled else {
+            debug("Application updater disabled")
+            return
+        }
+
         updater.check(force: true, completion: { result, error in
             if error != nil {
                 debug("error updater.check(): \(error!.localizedDescription)")
@@ -346,6 +353,10 @@ class ApplicationSettings: NSStackView {
     }
     
     @objc private func toggleUpdateInterval(_ sender: NSMenuItem) {
+        guard updater.isEnabled else {
+            return
+        }
+
         guard let key = sender.representedObject as? String else { return }
         Store.shared.set(key: "update-interval", value: key)
     }

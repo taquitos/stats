@@ -12,6 +12,42 @@
 import Cocoa
 import Kit
 
+private let minimumStatusItemLength: CGFloat = 1
+
+private func setStatusItemLength(_ item: NSStatusItem?, to width: CGFloat, retryIfNeeded: Bool = true) {
+    guard let item = item else { return }
+
+    let update = {
+        guard item.button?.window != nil else {
+            if retryIfNeeded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    setStatusItemLength(item, to: width, retryIfNeeded: false)
+                }
+            }
+            return
+        }
+        if abs(item.length - width) > 0.5 {
+            item.length = width
+        }
+    }
+
+    if Thread.isMainThread {
+        update()
+    } else {
+        DispatchQueue.main.async(execute: update)
+    }
+}
+
+private func attachStatusItemView(_ view: NSView, to item: NSStatusItem?) {
+    guard let button = item?.button else { return }
+
+    button.image = nil
+    button.autoresizesSubviews = true
+    view.translatesAutoresizingMaskIntoConstraints = true
+    view.autoresizingMask = [.width, .height]
+    button.addSubview(view)
+}
+
 internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
     private var menuBarItem: NSStatusItem? = nil
     private var view: NSView = NSView(frame: NSRect(x: 0, y: 0, width: 0, height: Constants.Widget.height))
@@ -65,12 +101,13 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
     }
     
     public func enable() {
-        self.menuBarItem = NSStatusBar.system.statusItem(withLength: 0)
+        self.menuBarItem = NSStatusBar.system.statusItem(
+            withLength: max(self.calculatedWidth(), minimumStatusItemLength)
+        )
         DispatchQueue.main.async(execute: {
             self.menuBarItem?.autosaveName = "CombinedModules"
         })
-        self.menuBarItem?.button?.addSubview(self.view)
-        self.menuBarItem?.button?.image = NSImage()
+        attachStatusItemView(self.view, to: self.menuBarItem)
         self.menuBarItem?.button?.toolTip = localizedString("Combined modules")
         
         self.menuBarItem?.button?.target = self
@@ -106,8 +143,30 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
             m.menuBar.view.setFrameOrigin(NSPoint(x: w, y: 0))
             w += m.menuBar.view.frame.width
         }
-        self.view.setFrameSize(NSSize(width: w, height: self.view.frame.height))
-        self.menuBarItem?.length = w
+        w = self.roundedMenuBarWidth(w)
+        if abs(self.view.frame.width - w) > 0.5 {
+            self.view.setFrameSize(NSSize(width: w, height: self.view.frame.height))
+        }
+        setStatusItemLength(self.menuBarItem, to: w)
+    }
+
+    private func calculatedWidth() -> CGFloat {
+        var width: CGFloat = 0
+        let activeModules = self.activeModules
+
+        activeModules.enumerated().forEach { idx, module in
+            width += module.menuBar.view.frame.width + self.spacing
+            if self.separator && idx < activeModules.count - 1 {
+                width += 3 + self.spacing
+            }
+        }
+
+        return self.roundedMenuBarWidth(width)
+    }
+
+    private func roundedMenuBarWidth(_ width: CGFloat) -> CGFloat {
+        let scale = NSScreen.main?.backingScaleFactor ?? 1
+        return (width * scale).rounded(.up) / scale
     }
     
     // call when popup appear/disappear

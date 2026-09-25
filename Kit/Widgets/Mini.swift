@@ -26,9 +26,7 @@ public class Mini: WidgetWrapper {
     private var defaultLabel: String
     private var _label: String
     
-    private var width: CGFloat {
-        (self.labelState ? 31 : 36) + (2*Constants.Widget.margin.x)
-    }
+    private let horizontalPadding: CGFloat = 1
     
     private var alignment: NSTextAlignment {
         if let alignmentPair = Alignments.first(where: { $0.key == self.alignmentState }) {
@@ -66,7 +64,7 @@ public class Mini: WidgetWrapper {
                 }
             }
         }
-        
+
         self.defaultLabel = widgetTitle
         self._label = widgetTitle
         super.init(.mini, title: widgetTitle, frame: CGRect(
@@ -83,8 +81,10 @@ public class Mini: WidgetWrapper {
             self.labelState = Store.shared.bool(key: "\(self.title)_\(self.type.rawValue)_label", defaultValue: self.labelState)
             self.alignmentState = Store.shared.string(key: "\(self.title)_\(self.type.rawValue)_alignment", defaultValue: self.alignmentState)
         }
+
+        self.updateReservedWidth()
     }
-    
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -106,45 +106,65 @@ public class Mini: WidgetWrapper {
         }
         
         let valueSize: CGFloat = self.labelState ? 12 : 14
-        var origin: CGPoint = CGPoint(x: Constants.Widget.margin.x, y: (Constants.Widget.height-valueSize)/2)
+        var origin: CGPoint = CGPoint(x: Constants.Widget.margin.x + self.horizontalPadding, y: (Constants.Widget.height-valueSize)/2)
         let style = NSMutableParagraphStyle()
         style.alignment = self.labelState ? self.alignment : .center
         
+        let valueString = "\(Int(value.rounded(toPlaces: 2) * 100))\(suffix)"
+        let labelAttributes = [
+            NSAttributedString.Key.font: NSFont.systemFont(ofSize: 7, weight: .light),
+            NSAttributedString.Key.foregroundColor: isDarkMode ? NSColor.white : NSColor.textColor,
+            NSAttributedString.Key.paragraphStyle: style
+        ]
+        let valueAttributes = [
+            NSAttributedString.Key.font: NSFont.systemFont(ofSize: valueSize, weight: .regular),
+            NSAttributedString.Key.foregroundColor: color(for: value, pressureLevel: pressureLevel, colorZones: colorZones),
+            NSAttributedString.Key.paragraphStyle: style
+        ]
+        let width = self.reservedWidth(label: label, suffix: suffix)
+        let contentWidth = width - (2 * Constants.Widget.margin.x) - (2 * self.horizontalPadding)
+
         if self.labelState {
-            let style = NSMutableParagraphStyle()
-            style.alignment = self.alignment
-            
-            let stringAttributes = [
-                NSAttributedString.Key.font: NSFont.systemFont(ofSize: 7, weight: .light),
-                NSAttributedString.Key.foregroundColor: isDarkMode ? NSColor.white : NSColor.textColor,
-                NSAttributedString.Key.paragraphStyle: style
-            ]
-            let rect = CGRect(x: origin.x, y: 12, width: self.width - (Constants.Widget.margin.x*2), height: 7)
-            let str = NSAttributedString.init(string: label, attributes: stringAttributes)
+            let rect = CGRect(x: origin.x, y: 12, width: contentWidth, height: 7)
+            let str = NSAttributedString.init(string: label, attributes: labelAttributes)
             str.draw(with: rect)
             
             origin.y = 1
         }
-        
-        var color: NSColor = .controlAccentColor
-        switch self.colorState {
-        case .systemAccent: color = .controlAccentColor
-        case .utilization: color = value.usageColor(zones: colorZones, reversed: self.title == "BAT")
-        case .pressure: color = pressureLevel.pressureColor()
-        case .monochrome: color = (isDarkMode ? NSColor.white : NSColor.black)
-        default: color = self.colorState.additional as? NSColor ?? .controlAccentColor
-        }
-        
-        let stringAttributes = [
-            NSAttributedString.Key.font: NSFont.systemFont(ofSize: valueSize, weight: .regular),
-            NSAttributedString.Key.foregroundColor: color,
-            NSAttributedString.Key.paragraphStyle: style
-        ]
-        let rect = CGRect(x: origin.x, y: origin.y, width: self.width - (Constants.Widget.margin.x*2), height: valueSize+1)
-        let str = NSAttributedString.init(string: "\(Int(value.rounded(toPlaces: 2) * 100))\(suffix)", attributes: stringAttributes)
+
+        let rect = CGRect(x: origin.x, y: origin.y, width: contentWidth, height: valueSize+1)
+        let str = NSAttributedString.init(string: valueString, attributes: valueAttributes)
         str.draw(with: rect)
-        
-        self.setWidth(width)
+    }
+
+    private func updateReservedWidth() {
+        var label = ""
+        var suffix = ""
+        self.queue.sync {
+            label = self._label
+            suffix = self._suffix
+        }
+        self.setWidth(self.reservedWidth(label: label, suffix: suffix))
+    }
+
+    private func reservedWidth(label: String, suffix: String) -> CGFloat {
+        let valueSize: CGFloat = self.labelState ? 12 : 14
+        let valueFont = NSFont.systemFont(ofSize: valueSize, weight: .regular)
+        let labelFont = NSFont.systemFont(ofSize: 7, weight: .light)
+        let valueWidth = "100\(suffix)".widthOfString(usingFont: valueFont)
+        let labelWidth = self.labelState ? label.widthOfString(usingFont: labelFont) : 0
+
+        return max(valueWidth, labelWidth).rounded(.up) + (2 * self.horizontalPadding) + (2 * Constants.Widget.margin.x)
+    }
+
+    private func color(for value: Double, pressureLevel: RAMPressure, colorZones: colorZones) -> NSColor {
+        switch self.colorState {
+        case .systemAccent: return .controlAccentColor
+        case .utilization: return value.usageColor(zones: colorZones, reversed: self.title == "BAT")
+        case .pressure: return pressureLevel.pressureColor()
+        case .monochrome: return isDarkMode ? NSColor.white : NSColor.black
+        default: return self.colorState.additional as? NSColor ?? .controlAccentColor
+        }
     }
     
     public func setValue(_ newValue: Double) {
@@ -154,9 +174,7 @@ public class Mini: WidgetWrapper {
             return true
         }
         guard updated else { return }
-        DispatchQueue.main.async(execute: {
-            self.needsDisplay = true
-        })
+        self.redrawLayerContents()
     }
     
     public func setPressure(_ newPressureLevel: RAMPressure) {
@@ -182,6 +200,7 @@ public class Mini: WidgetWrapper {
             return true
         }
         guard updated else { return }
+        self.updateReservedWidth()
         DispatchQueue.main.async(execute: {
             self.needsDisplay = true
         })
@@ -206,8 +225,9 @@ public class Mini: WidgetWrapper {
             return true
         }
         guard updated else { return }
+        self.updateReservedWidth()
         DispatchQueue.main.async(execute: {
-            self.needsDisplay = true
+            self.redrawLayerContents()
         })
     }
     
@@ -246,6 +266,7 @@ public class Mini: WidgetWrapper {
     @objc private func toggleLabel(_ sender: NSControl) {
         self.labelState = controlState(sender)
         Store.shared.set(key: "\(self.title)_\(self.type.rawValue)_label", value: self.labelState)
+        self.updateReservedWidth()
         self.display()
     }
     
