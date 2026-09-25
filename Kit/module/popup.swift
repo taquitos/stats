@@ -11,6 +11,12 @@
 
 import Cocoa
 
+private extension NSWindow {
+    var canUpdateContentLayout: Bool {
+        self.isVisible && self.windowNumber > 0 && !self.isMiniaturized
+    }
+}
+
 public final class PopupCache<T> {
     public var value: T?
     public var initialized: Bool = false
@@ -68,7 +74,7 @@ open class PopupWrapper: NSStackView, Popup_p {
     
     public func apply<T>(_ value: T, to cache: PopupCache<T>, render: @escaping (T) -> Void) {
         DispatchQueue.main.async {
-            cache.apply(value, visible: self.window?.isVisible ?? false, render: render)
+            cache.apply(value, visible: self.window?.canUpdateContentLayout ?? false, render: render)
         }
     }
     
@@ -193,6 +199,8 @@ internal class PopupView: NSView {
     }
     private var windowHeight: CGFloat?
     private var containerHeight: CGFloat?
+    private var pendingResize: NSSize?
+    private var lastWindowSize: NSSize?
     
     init(frame: NSRect, module: ModuleType) {
         self.header = HeaderView(frame: NSRect(
@@ -297,6 +305,12 @@ internal class PopupView: NSView {
                 self.recalculateHeight(size)
             }
         }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let size = self.pendingResize ?? self.body.documentView?.frame.size {
+                self.recalculateHeight(size)
+            }
+        }
         
         if let documentView = self.body.documentView {
             documentView.scroll(NSPoint(x: 0, y: documentView.bounds.size.height))
@@ -308,6 +322,11 @@ internal class PopupView: NSView {
     }
     
     private func recalculateHeight(_ size: NSSize) {
+        guard let window = self.window, window.canUpdateContentLayout else {
+            self.pendingResize = size
+            return
+        }
+
         var isScrollVisible: Bool = false
         var windowSize: NSSize = NSSize(
             width: size.width + (Constants.Popup.margins*2),
@@ -325,14 +344,34 @@ internal class PopupView: NSView {
             windowSize.width = screenWidth
         }
         
-        self.window?.setContentSize(windowSize)
-        self.foreground.setFrameSize(windowSize)
-        self.background.setFrameSize(windowSize)
-        self.resizeBody(windowSize, scrollVisible: isScrollVisible)
-        self.header.setFrameOrigin(NSPoint(
+        if self.lastWindowSize == nil ||
+            abs((self.lastWindowSize?.width ?? 0) - windowSize.width) > 0.5 ||
+            abs((self.lastWindowSize?.height ?? 0) - windowSize.height) > 0.5 {
+            window.setContentSize(windowSize)
+            self.lastWindowSize = windowSize
+        }
+        self.pendingResize = nil
+
+        if self.foreground.frame.size != windowSize {
+            self.foreground.setFrameSize(windowSize)
+        }
+        if self.background.frame.size != windowSize {
+            self.background.setFrameSize(windowSize)
+        }
+        let bodySize = NSSize(
+            width: windowSize.width - (Constants.Popup.margins*2) + (isScrollVisible ? 20 : 0),
+            height: windowSize.height - Constants.Popup.headerHeight - (Constants.Popup.margins*2)
+        )
+        if self.body.frame.size != bodySize {
+            self.resizeBody(windowSize, scrollVisible: isScrollVisible)
+        }
+        let headerOrigin = NSPoint(
             x: self.header.frame.origin.x,
             y: self.body.frame.height + (Constants.Popup.margins*2)
-        ))
+        )
+        if self.header.frame.origin != headerOrigin {
+            self.header.setFrameOrigin(headerOrigin)
+        }
         
         if let documentView = self.body.documentView {
             let diff = h0 - (self.body.documentView?.frame.height ?? 0)

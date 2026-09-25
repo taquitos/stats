@@ -132,9 +132,14 @@ extension AppDelegate {
             }
             completion(NSBackgroundActivityScheduler.Result.finished)
         }
-        
+
+        self.updateActivity.invalidate()
+        if !updater.isEnabled {
+            debug("Application updater disabled")
+            return
+        }
+
         if let updateInterval = AppUpdateInterval(rawValue: Store.shared.string(key: "update-interval", defaultValue: AppUpdateInterval.silent.rawValue)) {
-            self.updateActivity.invalidate()
             self.updateActivity.repeats = true
             
             debug("Application update interval is '\(updateInterval.rawValue)'")
@@ -177,6 +182,11 @@ extension AppDelegate {
     }
     
     internal func checkForNewVersion(silent: Bool = false) {
+        guard updater.isEnabled else {
+            debug("Application updater disabled")
+            return
+        }
+
         updater.check { result, error in
             if error != nil {
                 debug("error updater.check(): \(error!.localizedDescription)")
