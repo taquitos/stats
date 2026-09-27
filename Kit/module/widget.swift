@@ -11,6 +11,42 @@
 
 import Cocoa
 
+private let minimumStatusItemLength: CGFloat = 1
+
+private func setStatusItemLength(_ item: NSStatusItem?, to width: CGFloat, retryIfNeeded: Bool = true) {
+    guard let item = item else { return }
+
+    let update = {
+        guard item.button?.window != nil else {
+            if retryIfNeeded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    setStatusItemLength(item, to: width, retryIfNeeded: false)
+                }
+            }
+            return
+        }
+        if abs(item.length - width) > 0.5 {
+            item.length = width
+        }
+    }
+
+    if Thread.isMainThread {
+        update()
+    } else {
+        DispatchQueue.main.async(execute: update)
+    }
+}
+
+private func attachStatusItemView(_ view: NSView, to item: NSStatusItem?) {
+    guard let button = item?.button else { return }
+
+    button.image = nil
+    button.autoresizesSubviews = true
+    view.translatesAutoresizingMaskIntoConstraints = true
+    view.autoresizingMask = [.width, .height]
+    button.addSubview(view)
+}
+
 public enum widget_t: String {
     case unknown = ""
     case mini = "mini"
@@ -167,7 +203,7 @@ open class WidgetWrapper: NSView, widget_p {
         self.type = type
         self.title = title
         self.shadowSize = frame.size
-        self.queue = DispatchQueue(label: "eu.exelban.Stats.WidgetWrapper.\(type.rawValue).\(title)")
+        self.queue = DispatchQueue(label: "com.mydoghatestechnology.Stats.WidgetWrapper.\(type.rawValue).\(title)")
         
         super.init(frame: frame)
     }
@@ -181,13 +217,24 @@ open class WidgetWrapper: NSView, widget_p {
         if width == 0 || width == 1 {
             newWidth = self.emptyView()
         }
+        let scale = NSScreen.main?.backingScaleFactor ?? 1
+        newWidth = (newWidth * scale).rounded(.up) / scale
         
-        guard self.shadowSize.width != newWidth else { return }
-        self.shadowSize.width = newWidth
+        guard abs(self.shadowSize.width - newWidth) > 0.5 else { return }
         
-        DispatchQueue.main.async {
-            self.setFrameSize(NSSize(width: newWidth, height: self.frame.size.height))
+        let updateWidth = {
+            guard abs(self.shadowSize.width - newWidth) > 0.5 || abs(self.frame.width - newWidth) > 0.5 else { return }
+            self.shadowSize.width = newWidth
+            if abs(self.frame.width - newWidth) > 0.5 {
+                self.setFrameSize(NSSize(width: newWidth, height: self.frame.size.height))
+            }
             self.widthHandler?()
+        }
+
+        if Thread.isMainThread {
+            updateWidth()
+        } else {
+            DispatchQueue.main.async(execute: updateWidth)
         }
     }
     
@@ -216,6 +263,22 @@ open class WidgetWrapper: NSView, widget_p {
     public func redraw() {
         DispatchQueue.main.async { [weak self] in
             self?.needsDisplay = true
+        }
+    }
+
+    public func redrawLayerContents() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.bounds.width > 0, self.bounds.height > 0 else { return }
+
+            self.wantsLayer = true
+            self.layer?.contentsScale = self.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+            let image = NSImage(size: self.bounds.size)
+            image.lockFocus()
+            self.effectiveAppearance.performAsCurrentDrawingAppearance {
+                self.draw(self.bounds)
+            }
+            image.unlockFocus()
+            self.layer?.contents = image
         }
     }
     
@@ -284,8 +347,8 @@ public class SWidget {
         
         self.item.widthHandler = { [weak self] in
             self?.sizeCallback?()
-            if let s = self, let item = s.menuBarItem, let width: CGFloat = self?.item.frame.width, item.length != width {
-                item.length = width
+            if let s = self, let width: CGFloat = self?.item.frame.width {
+                setStatusItemLength(s.menuBarItem, to: width)
             }
         }
         self.item.identifier = NSUserInterfaceItemIdentifier(self.type.rawValue)
@@ -340,8 +403,7 @@ public class SWidget {
                 if self.item.frame.origin.x != self.originX {
                     self.item.setFrameOrigin(NSPoint(x: self.originX, y: self.item.frame.origin.y))
                 }
-                self.menuBarItem?.button?.addSubview(self.item)
-                self.menuBarItem?.button?.image = NSImage()
+                attachStatusItemView(self.item, to: self.menuBarItem)
                 self.menuBarItem?.button?.toolTip = "\(localizedString(self.module)): \(self.type.name())"
                 
                 if let item = self.menuBarItem, !item.isVisible {
@@ -411,7 +473,7 @@ public class MenuBar {
     
     init(moduleName: String) {
         self.moduleName = moduleName
-        self.queue = DispatchQueue(label: "eu.exelban.Stats.MenuBar.\(moduleName)")
+        self.queue = DispatchQueue(label: "com.mydoghatestechnology.Stats.MenuBar.\(moduleName)")
         self.oneView = Store.shared.bool(key: "\(self.moduleName)_oneView", defaultValue: self.oneView)
         self.view.identifier = NSUserInterfaceItemIdentifier(rawValue: moduleName)
         
@@ -483,14 +545,15 @@ public class MenuBar {
             if state && self.active {
                 guard self.menuBarItem == nil else { return }
                 restoreNSStatusItemPosition(id: self.moduleName)
-                self.menuBarItem = NSStatusBar.system.statusItem(withLength: 0)
+                self.menuBarItem = NSStatusBar.system.statusItem(
+                    withLength: max(self.calculatedMenuBarWidth(), minimumStatusItemLength)
+                )
                 DispatchQueue.main.async(execute: {
                     self.menuBarItem?.autosaveName = self.moduleName
                 })
                 self.menuBarItem?.isVisible = true
                 
-                self.menuBarItem?.button?.addSubview(self.view)
-                self.menuBarItem?.button?.image = NSImage()
+                attachStatusItemView(self.view, to: self.menuBarItem)
                 self.menuBarItem?.button?.toolTip = "\(localizedString(self.moduleName))"
                 self.menuBarItem?.button?.target = self
                 self.menuBarItem?.button?.action = #selector(self.togglePopup)
@@ -508,15 +571,30 @@ public class MenuBar {
     private func recalculateWidth() {
         guard self.oneView, self.active else { return }
         
-        let w = self.activeWidgets.isEmpty ? 0 : self.activeWidgets.map({ $0.item.frame.width }).reduce(0, +) +
-            (CGFloat(self.activeWidgets.count - 1) * Constants.Widget.spacing) +
-            Constants.Widget.spacing * 2
-        self.menuBarItem?.length = w
-        self.view.setFrameOrigin(NSPoint(x: 0, y: 0))
-        self.view.setFrameSize(NSSize(width: w, height: Constants.Widget.height))
+        let w = self.calculatedMenuBarWidth()
+        setStatusItemLength(self.menuBarItem, to: w)
+        if self.view.frame.origin != .zero {
+            self.view.setFrameOrigin(NSPoint(x: 0, y: 0))
+        }
+        if abs(self.view.frame.width - w) > 0.5 {
+            self.view.setFrameSize(NSSize(width: w, height: Constants.Widget.height))
+        }
         
         self.view.recalculate(self.sortedWidgets)
         self.callback?()
+    }
+
+    private func calculatedMenuBarWidth() -> CGFloat {
+        let count = self.activeWidgets.count
+        let widgetWidth = self.activeWidgets.map({ $0.item.frame.width }).reduce(0, +)
+        let spacingWidth = count > 0 ? CGFloat(count - 1) * Constants.Widget.spacing : 0
+
+        return self.roundedMenuBarWidth(widgetWidth + spacingWidth + Constants.Widget.spacing * 2)
+    }
+
+    private func roundedMenuBarWidth(_ width: CGFloat) -> CGFloat {
+        let scale = NSScreen.main?.backingScaleFactor ?? 1
+        return (width * scale).rounded(.up) / scale
     }
     
     @objc private func togglePopup() {

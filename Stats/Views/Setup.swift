@@ -505,6 +505,10 @@ private class SetupView_startAtLogin: NSStackView {
 private class SetupView_update: NSStackView {
     private var value: AppUpdateInterval {
         get {
+            if !updater.isEnabled {
+                return .never
+            }
+
             let value = Store.shared.string(key: "update-interval", defaultValue: AppUpdateInterval.silent.rawValue)
             return AppUpdateInterval(rawValue: value) ?? AppUpdateInterval.silent
         }
@@ -581,6 +585,7 @@ private class SetupView_update: NSStackView {
         button.action = #selector(self.toggle)
         button.isBordered = false
         button.isTransparent = false
+        button.isEnabled = updater.isEnabled || value == .never
         button.target = self
         button.identifier = NSUserInterfaceItemIdentifier(rawValue: value.rawValue)
         
@@ -588,6 +593,10 @@ private class SetupView_update: NSStackView {
     }
     
     @objc private func toggle(_ sender: NSButton) {
+        guard updater.isEnabled else {
+            return
+        }
+
         guard let key = sender.identifier?.rawValue, !key.isEmpty else { return }
         Store.shared.set(key: "update-interval", value: key)
     }

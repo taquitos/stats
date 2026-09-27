@@ -2,8 +2,8 @@
 
 set -u
 
-HELPER_LABEL="eu.exelban.Stats.SMC.Helper"
-AGENT_LABEL="eu.exelban.Stats"
+HELPER_LABEL="com.mydoghatestechnology.Stats.SMC.Helper"
+AGENT_LABEL="com.mydoghatestechnology.Stats"
 
 if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
     HOME=$(dscl . -read "/Users/$SUDO_USER" NFSHomeDirectory | awk '{print $2}')
@@ -48,12 +48,12 @@ echo "Removing the System Stats authorization..."
 run_as_user security delete-generic-password -s "${AGENT_LABEL}.remote" -a access_token 2>/dev/null || true
 run_as_user security delete-generic-password -s "${AGENT_LABEL}.remote" -a refresh_token 2>/dev/null || true
 rm -rf "$HOME/Library/Application Support/Stats"
-rm -rf "$HOME/Library/Containers/eu.exelban.Stats.Widgets"
-rm -rf "$HOME/Library/Group Containers/"*.eu.exelban.Stats.widgets
-run_as_user defaults delete eu.exelban.Stats >/dev/null 2>&1 || true
-run_as_user defaults delete eu.exelban.Stats.Widgets >/dev/null 2>&1 || true
-rm -f "$HOME/Library/Preferences/eu.exelban.Stats.plist"
-rm -f "$HOME/Library/Preferences/eu.exelban.Stats.Widgets.plist"
+rm -rf "$HOME/Library/Containers/com.mydoghatestechnology.Stats.Widgets"
+rm -rf "$HOME/Library/Group Containers/"*.com.mydoghatestechnology.Stats.widgets
+run_as_user defaults delete com.mydoghatestechnology.Stats >/dev/null 2>&1 || true
+run_as_user defaults delete com.mydoghatestechnology.Stats.Widgets >/dev/null 2>&1 || true
+rm -f "$HOME/Library/Preferences/com.mydoghatestechnology.Stats.plist"
+rm -f "$HOME/Library/Preferences/com.mydoghatestechnology.Stats.Widgets.plist"
 
 echo "Stats has been uninstalled."
 echo "If fan speeds were controlled manually, they will return to automatic control after a reboot."

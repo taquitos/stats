@@ -319,7 +319,7 @@ public class FrequencyReader: Reader<CPU_Frequency> {
     private var prev: (samples: CFDictionary, time: TimeInterval)? = nil
     
     private let measurementCount: Int = 4
-    private let isReadingQueue = DispatchQueue(label: "com.example.isReadingQueue")
+    private let isReadingQueue = DispatchQueue(label: "com.mydoghatestechnology.Stats.CPU.isReadingQueue")
     
     private var _isReading: Bool = false
     private var isReading: Bool {
